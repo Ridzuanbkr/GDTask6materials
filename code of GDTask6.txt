@@ -1,0 +1,246 @@
+var createScene = function () {
+    // This creates a basic Babylon Scene object (non-mesh)
+    var scene = new BABYLON.Scene(engine);
+
+     scene.gravity = new BABYLON.Vector3(0, -9.81, 0);
+    scene.collisionsEnabled = true;
+
+    // 1) Textured Skybox
+    const skybox = BABYLON.MeshBuilder.CreateBox("skyBox", { size: 1000 }, scene);
+    const skyMat = new BABYLON.StandardMaterial("skyMat", scene);
+    skyMat.backFaceCulling = false;
+    skyMat.disableLighting = true;
+    skyMat.reflectionTexture = new BABYLON.CubeTexture(
+      "https://playground.babylonjs.com/textures/skybox", scene
+    );
+    skybox.material = skyMat;
+    skybox.freezeWorldMatrix();
+    skyMat.freeze();
+
+    // 2) Textured Ground (100×100)
+    const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 100, height: 100 }, scene);
+    const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
+    groundMat.diffuseTexture = new BABYLON.Texture(
+      "https://cdn.jsdelivr.net/gh/Ridzuanbkr/GDTask6materials@main/artificial-green-grass.jpg",
+      scene
+    );
+    ground.material = groundMat;
+    ground.checkCollisions = true;
+    ground.freezeWorldMatrix();
+    groundMat.freeze();
+
+    // 3) First-Person Camera (WASD + Run)
+    const camera = new BABYLON.UniversalCamera("cam", new BABYLON.Vector3(0, 2, 0), scene);
+    camera.attachControl(canvas, true);
+    const walkSpeed = 0.2, runSpeed = 0.5;
+    camera.speed = walkSpeed;
+    camera.applyGravity = true;
+    camera.checkCollisions = true;
+    camera.ellipsoid = new BABYLON.Vector3(1, 1, 1);
+    camera.keysUp    = [87]; // W
+    camera.keysDown  = [83]; // S
+    camera.keysLeft  = [65]; // A
+    camera.keysRight = [68]; // D
+    scene.onPointerObservable.add(pi => {
+      if (pi.type === BABYLON.PointerEventTypes.POINTERDOWN && pi.event.button === 2) {
+        camera.speed = runSpeed;
+      }
+      if (pi.type === BABYLON.PointerEventTypes.POINTERUP && pi.event.button === 2) {
+        camera.speed = walkSpeed;
+      }
+    });
+
+    // 4) Light
+    new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+
+    // 5) Invisible Walls (100×100 boundary)
+    const wallH = 10, half = 50, th = 1;
+    const walls = [
+      BABYLON.MeshBuilder.CreateBox("wf", { width: 100, height: wallH, depth: th }, scene),
+      BABYLON.MeshBuilder.CreateBox("wb", { width: 100, height: wallH, depth: th }, scene),
+      BABYLON.MeshBuilder.CreateBox("wl", { width: th,   height: wallH, depth: 100 }, scene),
+      BABYLON.MeshBuilder.CreateBox("wr", { width: th,   height: wallH, depth: 100 }, scene)
+    ];
+    walls[0].position.set(0, wallH/2,  half);
+    walls[1].position.set(0, wallH/2, -half);
+    walls[2].position.set( half, wallH/2, 0);
+    walls[3].position.set(-half, wallH/2, 0);
+    walls.forEach(w => {
+      w.isVisible = false;
+      w.checkCollisions = true;
+      w.freezeWorldMatrix();
+    });
+
+    // 6) Trees (Cylinder + Sphere)
+    const trunkMat = new BABYLON.StandardMaterial("trunkMat", scene);
+    trunkMat.diffuseColor = new BABYLON.Color3(0.55, 0.27, 0.07);
+    const leafMat = new BABYLON.StandardMaterial("leafMat", scene);
+    leafMat.diffuseColor = new BABYLON.Color3(0, 0.5, 0);
+    for (let i = 0; i < 30; i++) {
+      const x = Math.random() * 90 - 45, z = Math.random() * 90 - 45;
+      const trunk = BABYLON.MeshBuilder.CreateCylinder(`tr${i}`, { diameter:1, height:4 }, scene);
+      trunk.position.set(x, 2, z);
+      trunk.material = trunkMat;
+      trunk.freezeWorldMatrix();
+      const leaves = BABYLON.MeshBuilder.CreateSphere(`lf${i}`, { diameter:4 }, scene);
+      leaves.position.set(x, 4.5, z);
+      leaves.material = leafMat;
+      leaves.freezeWorldMatrix();
+    }
+
+    // 7) Spawn Apples & Plastics (×3)
+    const appleMat = new BABYLON.StandardMaterial("appleMat", scene);
+    appleMat.diffuseColor   = new BABYLON.Color3(1, 0, 0);
+    const plasticMat = new BABYLON.StandardMaterial("plasticMat", scene);
+    plasticMat.diffuseColor = new BABYLON.Color3(0.8, 0.8, 0.8);
+
+    const appleCount   = 10, plasticCount = 10;
+    const apples  = [], plastics = [];
+    for (let i = 0; i < appleCount; i++) {
+      const a = BABYLON.MeshBuilder.CreateSphere(`apple${i}`, { diameter:0.5 }, scene);
+      a.position.set(Math.random() * 90 - 45, 0.25, Math.random() * 90 - 45);
+      a.material   = appleMat;
+      a.isPickable = true;
+      apples.push(a);
+    }
+    for (let i = 0; i < plasticCount; i++) {
+      const p = BABYLON.MeshBuilder.CreateBox(`plastic${i}`, { size:0.6 }, scene);
+      p.position.set(Math.random() * 90 - 45, 0.3, Math.random() * 90 - 45);
+      p.material   = plasticMat;
+      p.isPickable = true;
+      plastics.push(p);
+    }
+
+    // 8) UI: Score & 60 s Timer
+    let appleScore = 0, plasticScore = 0, timeLeft = 60, gameOver = false;
+    const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI", true, scene);
+
+    const scoreText = new BABYLON.GUI.TextBlock();
+    scoreText.text               = `Apples: ${appleScore}   Plastics: ${plasticScore}`;
+    scoreText.color              = "white";
+    scoreText.fontSize           = 24;
+    scoreText.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+    scoreText.verticalAlignment   = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
+    scoreText.paddingTop   = "10px";
+    scoreText.paddingLeft  = "10px";
+    ui.addControl(scoreText);
+
+    const timerText = new BABYLON.GUI.TextBlock();
+    timerText.text               = `Time: ${timeLeft}s`;
+    timerText.color              = "white";
+    timerText.fontSize           = 24;
+    timerText.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+    timerText.verticalAlignment   = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
+    timerText.paddingTop   = "40px";
+    timerText.paddingLeft  = "10px";
+    ui.addControl(timerText);
+
+    // 9) Sounds (new apple sound + reuse for plastics)
+    const root      = "https://cdn.jsdelivr.net/gh/Ridzuanbkr/GDTask6materials@main/";
+    const appleSound   = new BABYLON.Sound("appleSound",   root + "eating.mp3",   scene);
+    const plasticSound = new BABYLON.Sound("plasticSound", root + "pickup items.mp3", scene);
+    const winS         = new BABYLON.Sound("win",           root + "winning.mp3",     scene);
+    const loseS        = new BABYLON.Sound("lose",          root + "losing.mp3",    scene);
+    const bgm          = new BABYLON.Sound("bg",            root + "forest bg.mp3",      scene, null, { loop: true, autoplay: true, volume: 0.3 });
+
+    // 10) Effects: Brown Smoke & White Smoke
+    function spawnSmoke(pos) {
+      const ps = new BABYLON.ParticleSystem("smoke", 200, scene);
+      ps.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/particles/smoke.png", scene);
+      ps.emitter = pos.clone();
+      ps.minEmitBox = new BABYLON.Vector3(0,0,0);
+      ps.maxEmitBox = new BABYLON.Vector3(0,1,0);
+      ps.color1 = new BABYLON.Color4(0.2,0.2,0.2,1);
+      ps.color2 = new BABYLON.Color4(0.4,0.4,0.4,1);
+      ps.minSize = 0.3; ps.maxSize = 1;
+      ps.minLifeTime = 0.4; ps.maxLifeTime = 1;
+      ps.emitRate = 100;
+      ps.direction1 = new BABYLON.Vector3(-1,1,-1);
+      ps.direction2 = new BABYLON.Vector3(1,2,1);
+      ps.gravity = new BABYLON.Vector3(0,1,0);
+      ps.start();
+      setTimeout(() => { ps.stop(); ps.dispose(); }, 600);
+    }
+    function spawnWhiteSmoke(pos) {
+      const ps = new BABYLON.ParticleSystem("whiteSmoke", 200, scene);
+      ps.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/particles/smoke.png", scene);
+      ps.emitter = pos.clone();
+      ps.minEmitBox = new BABYLON.Vector3(0,0,0);
+      ps.maxEmitBox = new BABYLON.Vector3(0,1,0);
+      ps.color1 = new BABYLON.Color4(1,1,1,1);
+      ps.color2 = new BABYLON.Color4(0.8,0.8,0.8,1);
+      ps.minSize = 0.5; ps.maxSize = 1.2;
+      ps.minLifeTime = 0.5; ps.maxLifeTime = 1.2;
+      ps.emitRate = 150;
+      ps.direction1 = new BABYLON.Vector3(-1,1,-1);
+      ps.direction2 = new BABYLON.Vector3(1,2,1);
+      ps.gravity = new BABYLON.Vector3(0,1,0);
+      ps.start();
+      setTimeout(() => { ps.stop(); ps.dispose(); }, 800);
+    }
+
+    // 11) Gameplay: pick, race & timer
+    const timerInterval = setInterval(() => {
+      if (gameOver) { clearInterval(timerInterval); return; }
+      timeLeft--;
+      timerText.text = `Time: ${timeLeft}s`;
+      if (timeLeft <= 0) {
+        gameOver = true;
+        loseS.play();
+        const msg = new BABYLON.GUI.TextBlock();
+        msg.text = "⏰ Time's up! Go collect all plastics first to win!";
+        msg.color = "red"; msg.fontSize = 28;
+        msg.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+        msg.verticalAlignment   = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
+        msg.paddingTop = "80px";
+        ui.addControl(msg);
+      }
+    }, 1000);
+
+    scene.onPointerObservable.add(pi => {
+      if (gameOver) return;
+      if (pi.type !== BABYLON.PointerEventTypes.POINTERPICK) return;
+      const pick = pi.pickInfo;
+      if (!pick.hit || !pick.pickedMesh) return;
+      const m = pick.pickedMesh;
+      if (BABYLON.Vector3.Distance(camera.position, m.position) > 3) return;
+
+      const pos = m.position.clone();
+      if (apples.includes(m)) {
+        appleSound.play();
+        spawnWhiteSmoke(pos);
+        m.dispose(); appleScore++;
+      } else if (plastics.includes(m)) {
+        plasticSound.play();
+        spawnSmoke(pos);
+        m.dispose(); plasticScore++;
+      }
+      scoreText.text = `Apples: ${appleScore}   Plastics: ${plasticScore}`;
+
+      if (appleScore === appleCount || plasticScore === plasticCount) {
+        gameOver = true;
+        clearInterval(timerInterval);
+        if (plasticScore === plasticCount && appleScore < appleCount) {
+          winS.play();
+          const winMsg = new BABYLON.GUI.TextBlock();
+          winMsg.text = "🏆 You Win! You manage to clean forest by collect all plastics!";
+          winMsg.color = "yellow"; winMsg.fontSize = 32;
+          winMsg.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+          winMsg.verticalAlignment   = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
+          winMsg.paddingTop = "80px";
+          ui.addControl(winMsg);
+        } else {
+          loseS.play();
+          const loseMsg = new BABYLON.GUI.TextBlock();
+          loseMsg.text = "💥 You Lost! I know you like apples, but clean forest First!";
+          loseMsg.color = "red"; loseMsg.fontSize = 32;
+          loseMsg.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+          loseMsg.verticalAlignment   = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
+          loseMsg.paddingTop = "80px";
+          ui.addControl(loseMsg);
+        }
+      }
+    });
+
+    return scene;
+};
